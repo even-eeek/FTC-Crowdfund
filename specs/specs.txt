@@ -1,0 +1,142 @@
+
+------------------------------------ FTC (Forgotten Coin) ------------------------------------
+
+FTC (Forgotten Coin) is an ERC20 token on the BSC blockchain.
+
+fields:
+string _name: Forgotten Coin,
+string _symbol: FTC,
+uint8 _decimals: 18,
+uint256 _amount: 1000000000
+
+------------------ Crowdsale (ICO) ------------------
+
+- The crowdsale has a limit of 10% of totalSupply, i.e 100000000 tokens
+
+- The token Distribution is as follows:
+	tokenSalePercentage                = 10
+	foundationPercentage               = 10
+	nextype                            = 5
+	VCs                                = 5 
+	liquidityAndMarketingPercentage    = 5
+	gamePercentage                     = 65
+
+- There are 3 stages: enum CrowdsaleStage { PreICO, ICO, PostICO }
+
+	* In PreIco, the rate is $0.01 for 1 FTC i.e. 36900 FTC for 1 BNB (At the time of writing. The rate will be adjusted constantly for BNB price). The limit is 3% of totalSupply i.e. 30000000
+	* In Ico, the rate is $0.03 for 1 FTC i.e. 12300 FTC for 1 BNB (At the time of writing. The rate will be adjusted constantly for BNB price). The limit is 7% of totalSupply i.e. 70000000
+	* in PostIco, the tokenBuy will be disabled
+
+- In PreICO - There is a investorMinCap =  200000000000000000 wei (0.2 BNB) and investorHardCap = 5000000000000000000 wei (5 BNB).
+- In ICO - There is a investorMinCap =  200000000000000000 wei (0.2 BNB) and investorHardCap = 15000000000000000000 wei (15 BNB).
+
+- The contract has some important variables to keep the state of each investor and the contributed amount:
+	mapping(address => uint256) private tokenPurchases -> a mapping to determine the amount of FTC tokens for an investor
+	mapping(address => uint256) private tokenPayments -> a mapping to determine the amount paid in wei by an investor
+	mapping(uint256 => address) private beneficiaries -> a mapping to determine beneficiaries
+
+	uint256 private totalTokensPurchased -> a variables that holds the total number of tokens purchased in the sale.
+	uint256 private totalBeneficiaries -> a variables that holds the total number of investors.
+
+------------------ Vesting ------------------
+
+	* The liquidityAndMarketingFund (5% of totalSupply) will be immediately transfered after the ICO.
+	    m_token.safeTransfer(liquidityAndMarketingFund, LIQUIDITY_AND_MARKETING_SHARE);
+
+
+	  ***** TokenVestingPool *****
+
+		The TokenVestingPool Contract constructor has 2 fields:
+			ERC20 _token -> our FTCToken
+			uint256 _totalFunds -> total tokens for vesting contract
+
+		When a beneficiary is added to a vesting contract, these are the fields that need to be filled up:
+				address _beneficiary,
+				uint256 _start,
+				uint256 _cliff,
+				uint256 _duration,
+				uint256 _amount
+
+		For each user purchased FTC, the user will receive 10% at TGE and the remaining 90% will be transfered to the vesting contract
+		All users from the token sale will be part of the same TokenVestingPool Contract, called 'tokenSaleEscrow' as follows:
+
+
+						//90% of all tokensPurchased because 10% for each individual will be transfered at TGE 
+						uint256 tokensPurchasedRemaining = totalTokensPurchased.div(10).mul(9); 
+
+						tokenSaleEscrow = new TokenVestingPool(token, tokensPurchasedRemaining);
+						token.safeTransfer(address(tokenSaleEscrow), tokensPurchasedRemaining);
+						for (uint256 i = 0; i < totalBeneficiaries; i++) {
+							address beneficiary = beneficiaries[i];
+							uint256 purchase = tokenPurchases[beneficiary];
+							
+							uint256 TGEpurchase = purchase.div(10);
+							token.safeTransfer(beneficiary, TGEpurchase);
+
+							tokenSaleEscrow.addBeneficiary(
+								beneficiary,
+								block.timestamp,
+								GLOBAL_CLIFF,
+								CROWDSALE_ESCROW_DURATION,
+								purchase.sub(TGEpurchase) 
+							);
+						}
+
+		***** Foundation TokenVesting *****
+
+		The Foundation Vesting will be split between 2 vesting contract.
+		The plan is to first vest 1% each month for 10 months and then vest 5% each month for 18 months, as follows:
+
+						
+						foundationEscrow1 = new TokenVesting(
+								foundationFund,
+								block.timestamp,
+								FOUNDATION_1_ESCROW_CLIFF,
+								FOUNDATION_1_ESCROW_DURATION,
+								false // TokenVesting cannot be revoked
+						);
+						token.safeTransfer(address(foundationEscrow1), FOUNDATION_1_ESCROW_SHARE);
+
+						foundationEscrow2 = new TokenVesting(
+								foundationFund,
+								block.timestamp + FOUNDATION_1_ESCROW_DURATION + 1 days,
+								FOUNDATION_2_ESCROW_CLIFF,
+								FOUNDATION_2_ESCROW_DURATION,
+								false // TokenVesting cannot be revoked
+						);
+						token.safeTransfer(address(foundationEscrow2), FOUNDATION_2_ESCROW_SHARE);
+
+
+		***** Nextype TokenVesting *****
+		NEXTYPE_PERCENT = 100
+
+						NextypeEscrow1 = new TokenVesting(
+							NEXTYPE_FUND,
+							block.timestamp,
+							GLOBAL_CLIFF,
+							NEXTYPE_1_ESCROW_DURATION,
+							false // TokenVesting cannot be revoked
+						);
+						token.safeTransfer(address(NextypeEscrow1), NEXTYPE_1_ESCROW_SHARE.div(100).mul(NEXTYPE_PERCENT));
+
+						NextypeEscrow2 = new TokenVesting(
+							NEXTYPE_FUND,
+							block.timestamp + NEXTYPE_1_ESCROW_DURATION + 1 days,
+							GLOBAL_CLIFF,
+							NEXTYPE_2_ESCROW_DURATION,
+							false // TokenVesting cannot be revoked
+						);
+						token.safeTransfer(address(NextypeEscrow2), NEXTYPE_2_ESCROW_SHARE.div(100).mul(NEXTYPE_PERCENT));
+
+		***** Game TokenVesting *****
+		
+		The Game Vesting contract will contain the 65% of total supply:
+
+						gameEscrow = new TokenVesting(
+							gameFund,
+							block.timestamp,
+							GLOBAL_CLIFF,
+							GAME_ESCROW_DURATION,
+							false // TokenVesting cannot be revoked
+						);
+						token.safeTransfer(address(gameEscrow), GAME_SHARE);

@@ -1,0 +1,109 @@
+Contract: FtcToken
+    token attributes
+      √ has the correct name
+      √ has the correct symbol
+      √ has the correct decimals
+      √ has the correct supply
+
+  Contract: FtcTokenCrowdsale
+    crowdsale
+      √ tracks the wallet
+      √ tracks the token
+    crowdsale pause
+      √ should be able to call pause() by the owner of tokenSale (22284 gas)
+      √ should be able to call unpause() by the owner of tokenSale (82178 gas)
+    crowdsale stages
+      √ it starts in PreICO
+      √ allows admin to update the stage to ICO (52491 gas)
+      √ allows admin to update the stage to PostICO (84957 gas)
+      √ prevents admin from updating the stage to PreICO when ICO is active (74915 gas)
+      √ prevents admin from updating the stage to PreICO when PostICO is active (107381 gas)
+      √ prevents admin from updating the stage to ICO when PostICO is active (107393 gas)
+      √ prevents non-admin from updating the stage (22436 gas)
+    accepting payments
+      √ should accept payments (179582 gas)
+    accepting payments after increasing the Crowdsale
+      √ should accept payments after increasing the Crowdsale HardCap to 20 BNB (208332 gas)
+      √ should accept payments after increasing the Crowdsale HardCap to 30 BNB (208333 gas)
+    buyTokens()
+      when the contract is paused
+        √ rejects the transaction (52714 gas)
+      when the contribution is less than the minimum cap
+        √ rejects the transaction (36038 gas)
+      when the investor has already met the minimum cap
+        √ allows the investor to contribute below the minimum cap (226752 gas)
+      when the investor purchased tokens
+        √ check there is only 1 beneficiary for 1 call of buyTokens (157198 gas)
+        √ check there are only 2 beneficiary for 2 call of buyTokens (284396 gas)
+        √ check there is only 1 beneficiary for 2 calls of buyTokens from the same beneficiary (226752 gas)
+        √ check there is are 2 beneficiary for 2 calls of buyTokens from the beneficiary1 and 2 from beneficiary2 (423504 gas)
+    when the total contributions exceed the investor hard cap
+      √ rejects the transaction (194050 gas)
+    finalize
+      √ prevents calling finalize when PreICO is active (28941 gas)
+      √ prevents calling finalize when ICO is active (81432 gas)
+      √ allows calling finalize when PostICO is active (4852816 gas)
+      √ Does not allow calling distributeTokens twice (4885565 gas)
+
+  Contract: FtcTokenCrowdsaleVesting
+    #VestedFunds-GET-TOTAL
+      √ returns the same amount vested funds for NEXTYPE1 as for getting the funds at the final duration - 50% (1575051 gas)
+      √ returns the same amount vested funds for NEXTYPE2 as for getting the funds at the final duration - 50% (1575051 gas)
+      √ returns the same amount vested funds for NEXTYPE1 as for getting the funds at the final duration - 100% (1547645 gas)
+      √ returns the same amount vested funds for NEXTYPE2 as for getting the funds at the final duration - 100% (1547645 gas)
+      √ returns the same amount vested funds for a given beneficiary as for getting the funds at the final duration (5815137 gas)
+      √ returns the same amount vested funds for foundation1 as for getting the funds at the final duration (4830432 gas)
+      √ returns the same amount vested funds for foundation2 as for getting the funds at the final duration (4830432 gas)
+      √ returns the same amount vested funds for game as for getting the funds at the final duration (4830432 gas)
+    #VestedFunds-RELEASE
+      √ returns the same amount vested funds for NEXTYPE1 after FUNDS RELEASE - 50% half period (1665768 gas)
+      √ returns the same amount vested funds for NEXTYPE1 after FUNDS RELEASE - 50% all period (1647899 gas)
+      √ returns the same amount vested funds for NEXTYPE1 after FUNDS RELEASE - 100% half period (1638362 gas)
+      √ returns the same amount vested funds for NEXTYPE1 after FUNDS RELEASE - 100% all period (1620493 gas)
+      √ returns the same amount vested funds for NEXTYPE2 after FUNDS RELEASE - 50% half period (1665692 gas)
+      √ returns the same amount vested funds for NEXTYPE2 after FUNDS RELEASE - 50% all period (1647823 gas)
+      √ returns the same amount vested funds for NEXTYPE2 after FUNDS RELEASE - 100% half period (1638286 gas)
+      √ returns the same amount vested funds for NEXTYPE2 after FUNDS RELEASE - 100% all period (1620417 gas)
+      √ returns correct vested funds for a given beneficiary after FUNDS RELEASE - half period (5976103 gas)
+      √ returns correct vested funds for a given beneficiary after FUNDS RELEASE - all period (5940365 gas)
+      √ returns correct vested funds for foundation1 after FUNDS RELEASE - half period (4906100 gas)
+      √ returns correct vested funds for foundation1 after FUNDS RELEASE - all period (4888231 gas)
+      √ returns correct vested funds for foundation2 after FUNDS RELEASE - half period (4906129 gas)
+      √ returns correct vested funds for foundation2 after FUNDS RELEASE - all period (4888260 gas)
+      √ returns correct vested funds for game after FUNDS RELEASE (4888282 gas)
+
+  Contract: TokenVestingPool
+    #constructor
+      √ does not create an instance of the contract when the token argument is invalid (179241 gas)
+      √ does not create an instance of the contract when the total funds are zero (179496 gas)
+      √ creates an instance of the contract (1486098 gas)
+    #addBeneficiary
+      √ does not add a beneficiary when the beneficiary is the owner (24284 gas)
+      √ does not add a beneficiary when the address is invalid (23127 gas)
+      √ does not add a beneficiary when the beneficiary is the contract itself (23407 gas)
+      √ does not add a beneficiary when the duration time is lesser than the cliff time (24333 gas)
+      √ does not add a beneficiary when the amount of tokens to distribute is more than the total funds (26068 gas)
+      √ does not add a beneficiary when the token balance is not enough (1566310 gas)
+      √ does not add a beneficiary when amount of tokens is zero (24259 gas)
+      √ adds a beneficiary to the token pool (888551 gas)
+      √ adds a beneficiary even if the start date precedes the invocation of this method (888551 gas)
+      √ adds another token vesting contract when the beneficiary exists in the pool (1705412 gas)
+      √ new owner adds a beneficiary after transfering ownership (940403 gas)
+      √ adds a beneficiary from old owner after transferring ownership to new owner (75310 gas)
+      √ previous owner cannot add a beneficiary after the new owner claims ownership (75310 gas)
+    #publicAttributes
+      √ uses the same token address as passed to the constructor
+      √ does not modify total funds after adding a beneficiary
+      √ does updates distributed tokens after adding a beneficiary
+      √ does updates beneficiaries list after adding a beneficiary
+      √ does updates beneficiary distribution contracts mapping after adding a beneficiary
+    #getDistributionContracts
+      √ returns the distribution contracts for a given beneficiary (888551 gas)
+      √ returns an empty array if beneficiary has not been added
+      √ does not return the distribution contracts if beneficiary is not a valid address
+    Integration Test
+      √ transfers the corresponding tokens to the beneficiaries (1846077 gas)
+      √ transfers the corresponding tokens in a 10%-30%-60% scheme (2779970 gas)
+      √ transfers the corresponding tokens in a 33%-33%-33% scheme (4302078 gas)
+
+ 80 passing (12m)

@@ -1,0 +1,300 @@
+import ether from './helpers/ether';
+import EVMRevert from './helpers/EVMRevert';
+import { increaseTimeTo } from './helpers/increaseTime';
+const truffleAssert = require('truffle-assertions')
+
+const { BN } = require('@openzeppelin/test-helpers');
+
+require('chai')
+  .use(require('chai-as-promised'))
+  .should();
+
+const FtcToken = artifacts.require('FtcToken');
+const FtcTokenCrowdsale = artifacts.require('FtcTokenCrowdsale');
+
+contract('FtcTokenCrowdsale', function([_, wallet, investor1, investor2]) {
+
+  beforeEach(async function () {
+
+    const latestBlock = await web3.eth.getBlockNumber();
+    var tempLatestTime;// = await web3.eth.getBlock(latestBlock).timestamp;
+    await web3.eth.getBlock(latestBlock, function(error, result){
+       if(!error) {
+         tempLatestTime = result.timestamp;
+       }
+       else {
+         console.log("error")
+         console.error(error);
+       }
+    })
+
+    this.owner = _;
+
+    // Token config
+    this.name = "Forgotten Coin";
+    this.symbol = "FTC";
+    this.decimals = 18;
+    this.supply = 1000000000;
+
+    // Deploy Token
+    this.token = await FtcToken.new(
+      this.name,
+      this.symbol,
+      this.decimals,
+      this.supply
+    );
+
+    // Crowdsale config
+    this.wallet = wallet;
+    this.nextype = wallet;
+
+    // Investor caps
+    this.investorMinCap = ether("0.2");
+    this.inestorHardCap = ether("5");
+
+    // ICO Stages
+    this.preIcoStage = 0;
+    this.icoStage = 1;
+    this.postIcoStage = 2;
+
+    this.crowdsale = await FtcTokenCrowdsale.new(
+      this.wallet,
+      this.token.address,
+      this.nextype
+    );
+
+     const totalOwnerSupply = await this.token.balanceOf(this.owner)
+
+     // Transfer token to Vesting Address
+     await this.token.transfer(this.crowdsale.address, totalOwnerSupply,  { from: this.owner });
+
+     // Transfer token ownership to crowdsale
+    await this.token.transferOwnership(this.crowdsale.address);
+
+    //set BNB/USD price manually for testing because ganache can't interact with ChainLink Aggregator Interface
+    await this.crowdsale.setOwnerPrice(450, {from: this.owner});
+
+  });
+
+  describe('crowdsale', function() {
+
+    it('tracks the wallet', async function() {
+      const wallet = await this.crowdsale.wallet();
+      wallet.should.equal(this.wallet);
+    });
+
+    it('tracks the token', async function() {
+      const token = await this.crowdsale.token();
+      token.should.equal(this.token.address);
+    });
+  });
+
+  describe('crowdsale pause', async function() {
+    it("should be able to call pause() by the owner of tokenSale", async function () {
+        await this.crowdsale.pause({ from: investor1 }).should.be.rejectedWith(EVMRevert);
+
+        assert.equal(false, await this.crowdsale.paused());
+    });
+
+    it("should be able to call unpause() by the owner of tokenSale", async function () {
+        await this.crowdsale.pause({ from: this.owner }).should.be.fulfilled;
+        assert.equal(true, await this.crowdsale.paused());
+
+        await this.crowdsale.unpause({ from: investor1 }).should.be.rejectedWith(EVMRevert);
+        assert.equal(true, await this.crowdsale.paused());
+
+        await this.crowdsale.unpause({ from: this.owner }).should.be.fulfilled;
+        assert.equal(false, await this.crowdsale.paused());
+    });
+  })
+
+  describe('crowdsale stages', function() {
+
+    it('it starts in PreICO', async function () {
+      const stage = await this.crowdsale.stage();
+      stage.should.be.bignumber.equal(new BN(this.preIcoStage));
+    });
+
+    it('allows admin to update the stage to ICO', async function() {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      const stage = await this.crowdsale.stage();
+      stage.should.be.bignumber.equal(new BN(this.icoStage));
+    });
+
+    it('allows admin to update the stage to PostICO', async function() {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.postIcoStage, { from: this.owner });
+      const stage = await this.crowdsale.stage();
+      stage.should.be.bignumber.equal(new BN(this.postIcoStage));
+    });
+
+    it('prevents admin from updating the stage to PreICO when ICO is active', async function () {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.preIcoStage, { from: investor1 }).should.be.rejectedWith(EVMRevert);
+    });
+
+    it('prevents admin from updating the stage to PreICO when PostICO is active', async function () {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.postIcoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.preIcoStage, { from: investor1 }).should.be.rejectedWith(EVMRevert);
+    });
+
+    it('prevents admin from updating the stage to ICO when PostICO is active', async function () {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.postIcoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: investor1 }).should.be.rejectedWith(EVMRevert);
+    });
+
+    it('prevents non-admin from updating the stage', async function () {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: investor1 }).should.be.rejectedWith(EVMRevert);
+    });
+
+  });
+
+  describe('accepting payments', function() {
+    it('should accept payments', async function() {
+      const value = ether('1');
+      const purchaser = investor2;
+      await this.crowdsale.sendTransaction({ from: investor1, value: value  }).should.be.fulfilled;
+      await this.crowdsale.buyTokens(investor1, { from: purchaser, value: value }).should.be.fulfilled;
+    });
+  });
+
+  describe('accepting payments after increasing the Crowdsale ', function() {
+    it('should accept payments after increasing the Crowdsale HardCap to 20 BNB', async function() {
+      const value = ether('19');
+      const purchaser = investor2;
+      await this.crowdsale.updateCrowdsaleHardCap20BNB({ from: this.owner }).should.be.fulfilled;
+      await this.crowdsale.sendTransaction({ from: investor1, value: value  }).should.be.fulfilled;
+      await this.crowdsale.buyTokens(investor1, { from: purchaser, value: value }).should.be.fulfilled;
+    });
+      it('should accept payments after increasing the Crowdsale HardCap to 30 BNB', async function() {
+        const value = ether('29');
+        const purchaser = investor2;
+        await this.crowdsale.updateCrowdsaleHardCap30BNB({ from: this.owner }).should.be.fulfilled;
+        await this.crowdsale.sendTransaction({ from: investor1, value: value  }).should.be.fulfilled;
+        await this.crowdsale.buyTokens(investor1, { from: purchaser, value: value }).should.be.fulfilled;
+      });
+  });
+
+  describe('buyTokens()', function() {
+    describe('when the contract is paused', function() {
+      it('rejects the transaction', async function() {
+        await this.crowdsale.pause({ from: this.owner }).should.be.fulfilled;
+        assert.equal(true, await this.crowdsale.paused());
+        const value =  this.investorMinCap + 1;
+        await this.crowdsale.buyTokens(investor2, { value: value, from: investor2 }).should.be.rejectedWith(EVMRevert);
+      });
+    });
+
+    describe('when the contribution is less than the minimum cap', function() {
+      it('rejects the transaction', async function() {
+        const value =  this.investorMinCap - 100;
+        await this.crowdsale.buyTokens(investor2, { value: value, from: investor2 }).should.be.rejectedWith(EVMRevert);
+      });
+    });
+
+    describe('when the investor has already met the minimum cap', function() {
+      it('allows the investor to contribute below the minimum cap', async function() {
+        // First contribution is valid
+        const value1 = ether('1');
+        await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+        // Second contribution is less than investor cap
+        const value2 = 1; // wei
+        await this.crowdsale.buyTokens(investor1, { value: value2, from: investor1 }).should.be.fulfilled;
+      });
+    });
+
+    describe('when the investor purchased tokens', function() {
+      it('check there is only 1 beneficiary for 1 call of buyTokens', async function() {
+        const value1 = ether('1');
+        await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+
+        assert.equal(1, await this.crowdsale.totalBeneficiaries());
+      });
+
+      it('check there are only 2 beneficiary for 2 call of buyTokens', async function() {
+        const value1 = ether('1');
+        await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+
+        await this.crowdsale.buyTokens(investor2, { value: value1, from: investor2 }).should.be.fulfilled;
+
+        assert.equal(2, await this.crowdsale.totalBeneficiaries());
+      });
+
+      it('check there is only 1 beneficiary for 2 calls of buyTokens from the same beneficiary', async function() {
+        // First contribution is valid
+        const value1 = ether('1');
+        await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+        // Second contribution is less than investor cap
+        const value2 = 1; // wei
+        await this.crowdsale.buyTokens(investor1, { value: value2, from: investor1 }).should.be.fulfilled;
+
+
+        assert.equal(1, await this.crowdsale.totalBeneficiaries());
+      });
+
+      it('check there is are 2 beneficiary for 2 calls of buyTokens from the beneficiary1 and 2 from beneficiary2', async function() {
+        const value1 = ether('1');
+        await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+
+        const value2 = 1;
+        await this.crowdsale.buyTokens(investor1, { value: value2, from: investor1 }).should.be.fulfilled;
+
+        await this.crowdsale.buyTokens(investor2, { value: value1, from: investor2 });
+
+        await this.crowdsale.buyTokens(investor2, { value: value2, from: investor2 }).should.be.fulfilled;
+
+        assert.equal(2, await this.crowdsale.totalBeneficiaries());
+      });
+    });
+
+  });
+
+  describe('when the total contributions exceed the investor hard cap', function () {
+    it('rejects the transaction', async function () {
+      // First contribution is in valid range
+      const value1 = ether('2');
+      await this.crowdsale.buyTokens(investor1, { value: value1, from: investor1 });
+      // Second contribution sends total contributions over investor hard cap
+      const value2 = ether('5');
+      await this.crowdsale.buyTokens(investor1, { value: value2, from: investor1 }).should.be.rejectedWith(EVMRevert);
+    });
+  });
+
+  describe('finalize', function() {
+    it("prevents calling finalize when PreICO is active", async function()  {
+      await this.crowdsale.distributeTokens({from: this.owner}).should.be.rejectedWith(EVMRevert);
+    });
+    it("prevents calling finalize when ICO is active", async function()  {
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.distributeTokens({from: this.owner}).should.be.rejectedWith(EVMRevert);
+    })
+    it("allows calling finalize when PostICO is active", async function()  {
+      const value = ether('1');
+      const purchaser = investor2;
+      await this.crowdsale.sendTransaction({ from: investor1, value: value  }).should.be.fulfilled;
+      await this.crowdsale.buyTokens(investor1, { from: purchaser, value: value }).should.be.fulfilled;
+
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.postIcoStage, { from: this.owner });
+
+      await this.crowdsale.distributeTokens({from: this.owner}).should.be.fulfilled;
+    })
+    it("Does not allow calling distributeTokens twice", async function()  {
+      const value = ether('1');
+      const purchaser = investor2;
+      await this.crowdsale.sendTransaction({ from: investor1, value: value  }).should.be.fulfilled;
+      await this.crowdsale.buyTokens(investor1, { from: purchaser, value: value }).should.be.fulfilled;
+
+      await this.crowdsale.incrementCrowdsaleStage(this.icoStage, { from: this.owner });
+      await this.crowdsale.incrementCrowdsaleStage(this.postIcoStage, { from: this.owner });
+
+      await this.crowdsale.distributeTokens({from: this.owner}).should.be.fulfilled;
+
+      await truffleAssert.reverts(
+          this.crowdsale.distributeTokens({from: this.owner}), "Distribution completed."
+      );
+    })
+  })
+});
